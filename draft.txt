@@ -1,0 +1,100 @@
+POST : http://127.0.0.1:8000/api/sparql-endpoints/create
+
+{
+  "uri": "http://sparql.southgreen.fr/"
+}
+
+PUT : http://127.0.0.1:8000/api/sparql-endpoints/update?id=1
+
+{
+  "id": 1,
+  "uri": "http://sparql.southgreen.fr/"
+}
+
+
+
+GET : http://127.0.0.1:8000/api/sparql-endpoints/list-endpoints
+
+
+-------------------------------------
+
+
+POST : http://127.0.0.1:8000/api/knowledge-graphs/fetch-kgs
+
+{
+  "sparqlEndpoint": "http://sparql.southgreen.fr/"
+}
+
+GET : http://127.0.0.1:8000/api/knowledge-graphs/list-kgs
+
+
+GET : http://127.0.0.1:8000/api/knowledge-graphs/computation-status
+
+PUT : http://127.0.0.1:8000/api/knowledge-graphs/update-computation-status
+
+{
+  "id": 1,
+  "progress": 100.0,
+  "status": "Completed"
+}
+
+
+---------------------------------------------------------------------
+POST : http://127.0.0.1:8000/api/subjects/fetch
+
+{
+  "kgName": "http://purl.agrold.org/go"
+}
+
+
+POST : http://127.0.0.1:8000/api/subjects/compute-similarities
+
+{
+  "kgName": "http://purl.agrold.org/go"
+}
+
+GET : http://127.0.0.1:8000/api/subjects/list-sim?minScore=0.6&maxScore=0.8&limit=100&page=100&kgName=http://purl.agrold.org/go
+
+GET : http://127.0.0.1:8000/api/subjects/count-results?minScore=0.6&maxScore=0.8&limit=100&page=100&kgName=http://purl.agrold.org/go
+
+DELETE : http://127.0.0.1:8000/api/subjects/delete-sim?minScore=0.5&maxScore=0.6&limit=1&page=100&kgName=http://purl.agrold.org/go
+
+
+GET : http://127.0.0.1:8000/api/subjects/generate-correspondences?minScore=0.6&maxScore=0.8&limit=100&page=100&kgName=http://purl.agrold.org/go
+
+GET : http://127.0.0.1:8000/api/subjects/download-file?filePath=/tmp/correspondences_kg_9_m_0.6_M_0.8_l_100_p_100.json -> REMAINING
+
+
+
+
+------------------------------------------------------------------
+
+
+
+
+Subject :
+
+
+DELETE { <http://example.org/book/1234> ?p ?o . }
+INSERT { <http://example.org/book/5678> ?p ?o . }
+WHERE
+  { <http://example.org/book/1234> ?p ?o . }
+  
+  
+  Predicate :
+  
+  
+  DELETE { ?s <old_predicate_uri> ?o . }
+INSERT { ?s <new_predicate_uri> ?o . }
+WHERE
+  { ?s <old_predicate_uri> ?o . }
+  
+  
+  
+  Object : 
+  
+  
+  DELETE { ?s ?p <old_object_uri_or_literal> . }
+INSERT { ?s ?p <new_object_uri_or_literal> . }
+WHERE
+  { ?s ?p <old_object_uri_or_literal> . }

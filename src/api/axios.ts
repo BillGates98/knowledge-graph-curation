@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const WEB_SERVICE_URL = 'http://localhost:5000/api';
+const WEB_SERVICE_URL = 'http://localhost:8000/api';
 
 const apiClient = axios.create({
   baseURL: WEB_SERVICE_URL,
@@ -11,8 +11,8 @@ const apiClient = axios.create({
 
 apiClient.interceptors.request.use(
   (config) => {
-    const credentials = btoa('admin:admin');
-    config.headers.Authorization = `Basic ${credentials}`;
+    // const credentials = btoa('admin:admin');
+    // config.headers.Authorization = `Basic ${credentials}`;
     return config;
   },
   (error) => {
