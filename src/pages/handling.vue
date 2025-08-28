@@ -14,6 +14,11 @@ const search = ref('')
 const inProgress = ref(false)
 const selectedAxisP = ref('subject');
 const selectedKgP = ref('');
+const snackbar = ref({
+  active: false,
+  text: "",
+  timeout: 4000
+})
 
 const goToConfiguration = () => {
   router.push("/");
@@ -23,29 +28,47 @@ const currentProcesses = ref([])
 const showProcesses = ref({})
 
 const formatProcesses = (values) => {
+  showProcesses.value = {};
   for (const process of values) {
     const labelKg = dataKgs.value.find(kg => kg.id == process.knowledgeGraph)?.name || process.knowledgeGraph;
-    showProcesses.value[labelKg] = {
-      status: process.status,
-      progress: process.progress.toFixed(2),
-      createdAt: process.createdAt
-    };
-    if (!showProcesses.value[labelKg].axis) {
-      showProcesses.value[labelKg].axis = []
+
+    if (!showProcesses.value[labelKg]) {
+      showProcesses.value[labelKg] = {
+        axis: [],
+        status: [],
+        progress: [],
+        createdAt: []
+      };
     }
     showProcesses.value[labelKg].axis.push(process.axis);
+    showProcesses.value[labelKg].progress.push(process.progress.toFixed(2));
+    showProcesses.value[labelKg].status.push(process.status);
+    showProcesses.value[labelKg].createdAt.push(process.createdAt);
+
   }
 }
 
 const updateStatus = (value) => {
   KnowledgeGraphService.updateComputationStatus(value).then((response) => {
-    // console.log("Status updated successfully:", response.data);
+    snackbar.value = {
+      active: true,
+      text: "A process is completed successfully ! ",
+      timeout: 4000
+    };
+    // currentRunning();
   }).catch((error) => {
-    console.error("Error updating status:", error);
+    snackbar.value = {
+      active: true,
+      text: "Error updating status: " + JSON.stringify(error.response.data),
+      timeout: 4000
+    };
+  }).finally(() => {
+    inProgress.value = false;
   });
 }
 const currentRunning = () => {
   // console.log("Checking current running processes...");
+
   KnowledgeGraphService.getComputationStatus().then((response) => {
     let isRunning = false;
     // console.log("Current running processes:", response.data);
@@ -60,28 +83,37 @@ const currentRunning = () => {
         } else {
           // console.log("Process completed:", existingProcess);
           const toUpdate = process;
-          if (existingProcess) {
+          if (existingProcess.status === "COMPLETED") {
             toUpdate.progress = 100;
             toUpdate.status = "COMPLETED";
             updateStatus(toUpdate);
+            currentProcesses.value[i] = toUpdate;
           } else {
             currentProcesses.value.push(process);
           }
         }
-        if (isRunning) {
-          setTimeout(() => {
-            currentRunning();
-          }, 4000);
-        }
+      }
+      if (isRunning) {
+        setTimeout(() => {
+          currentRunning();
+        }, 4000);
       }
     } else {
       currentProcesses.value = response.data;
-      currentRunning();
+      setTimeout(() => {
+        currentRunning();
+      }, 4000);
     }
 
     formatProcesses(currentProcesses.value);
   }).catch((error) => {
-    console.error("Error fetching current processes:", error);
+    snackbar.value = {
+      active: true,
+      text: "Error fetching current processes: " + JSON.stringify(error.response.data),
+      timeout: 4000
+    };
+  }).finally(() => {
+    inProgress.value = false;
   });
 }
 
@@ -109,7 +141,11 @@ const getEndpoints = () => {
       listKnowledgeGraphs();
     })
     .catch((error) => {
-      console.error("Error fetching endpoints:", error);
+      snackbar.value = {
+        active: true,
+        text: "Error fetching endpoints: " + JSON.stringify(error.response.data),
+        timeout: 4000
+      };
     })
     .finally(() => {
       inProgress.value = false;
@@ -119,6 +155,7 @@ const getEndpoints = () => {
 const deleteSelectedEndpoint = (value) => {
   inProgress.value = true;
   const id = rawEndpoints.value[endpoints.value.indexOf(value)].id;
+  inProgress.value = true;
   SparqlEndpointService.delete(id)
     .then(() => {
       selectedEndpoint.value = '';
@@ -126,7 +163,11 @@ const deleteSelectedEndpoint = (value) => {
       getEndpoints();
     })
     .catch((error) => {
-      console.error("Error deleting endpoint:", error);
+      snackbar.value = {
+        active: true,
+        text: "Error deleting endpoint: " + JSON.stringify(error.response.data),
+        timeout: 4000
+      };
     })
     .finally(() => {
       inProgress.value = false;
@@ -142,12 +183,6 @@ const selectedGraphValue = ref('')
 const selectedAxis = ref('')
 
 const kgs = ref([
-  // 'AGROVOC - FAO',
-  // 'GEMET - EEA',
-  // 'DBpedia - W3C',
-  // 'Wikidata - Wikimedia',
-  // 'MeSH - NLM',
-  // 'GeoNames - NGA',
   // 'WordNet - Princeton',
 ]);
 const dataKgs = ref([]);
@@ -156,6 +191,7 @@ const kgSelectedValues = ref([]);
 const getKnowledgeGraphs = (sparqlEndpoint) => {
   inProgress.value = true;
   kgs.value = [];
+  inProgress.value = true;
   KnowledgeGraphService.fetchKgs(sparqlEndpoint)
     .then((response) => {
       dataKgs.value = response.data;
@@ -164,23 +200,47 @@ const getKnowledgeGraphs = (sparqlEndpoint) => {
       }
     })
     .catch((error) => {
-      console.log("Error we can't fetch the list of knowledge graphs of this endpoint");
+      snackbar.value = {
+        active: true,
+        text: "Error we can't fetch the list of knowledge graphs of this endpoint",
+        timeout: 4000
+      };
     }).finally(() => {
       inProgress.value = false;
     });
 };
 
+const onlyProcessedKnowledgeGraphs = (data) => {
+  const output = [];
+  for (const kg of data) {
+    if (isKnowledgeGraphProcessed(kg)) {
+      output.push(kg);
+    }
+  }
+  return output;
+};
+
+const isKnowledgeGraphProcessed = (kg) => {
+  const _dataKg = dataKgs.value.find(d => d.name === kg);
+  const processed = currentProcesses.value.find(process => process.knowledgeGraph == _dataKg.id);
+  return processed && processed.status ? true : false;
+};
 
 const listKnowledgeGraphs = () => {
   inProgress.value = true;
   dataKgs.value = [];
+  inProgress.value = true;
   KnowledgeGraphService.listKgs()
     .then((response) => {
       dataKgs.value = response.data;
       currentRunning();
     })
     .catch((error) => {
-      console.log("Error we can't fetch the list of knowledge graphs of this endpoint");
+      snackbar.value = {
+        active: true,
+        text: "Error we can't fetch the list of knowledge graphs of this endpoint",
+        timeout: 4000
+      };
     }).finally(() => {
       inProgress.value = false;
     });
@@ -192,8 +252,6 @@ const listKnowledgeGraphs = () => {
  */
 const selectedAxisValue = ref('') // subject
 const dataTableItems = ref([]);
-
-
 
 const { handleSubmit, handleReset } = useForm({
   validationSchema: {
@@ -231,49 +289,74 @@ const page = useField("page", 1);
 
 const totalCount = ref(0);
 const totalPageCount = ref(0);
-const dataTableHeaders = ref([
-  { title: 'Source ID', key: selectedAxisP.value + '_id' },
-  {
-    title: 'Source',
-    key: selectedAxisP.value + '_uri'
-  },
-  {
-    title: 'Target',
-    key: 'sim_' + selectedAxisP.value + '_uri'
-  },
-  {
-    title: 'score',
-    key: 'score'
-  },
-  { title: 'Target ID', key: 'sim_' + selectedAxisP.value + '_id' },
-  {
-    title: 'Actions',
-    key: 'actions',
-    align: 'end',
-    sortable: false
-  }])
+// const dataTableHeaders = ref([
+//   { title: 'Source ID', key: selectedAxisP.value + '_id' },
+//   {
+//     title: 'Source',
+//     key: selectedAxisP.value + '_uri'
+//   },
+//   {
+//     title: 'Target',
+//     key: 'sim_' + selectedAxisP.value + '_uri'
+//   },
+//   {
+//     title: 'score',
+//     key: 'score'
+//   },
+//   { title: 'Target ID', key: 'sim_' + selectedAxisP.value + '_id' },
+//   {
+//     title: 'Actions',
+//     key: 'actions',
+//     align: 'end',
+//     sortable: false
+//   }])
 
-const pushData = (data) => {
-  inProgress.value = true;
-  AxisService.create(data)
-    .then((response) => {
-      console.log(response);
-      if (response.status === 200) {
-      } else {
-        alert(JSON.stringify(response.data));
-      }
-    })
-    .catch((err) => {
-      console.log(JSON.stringify(err.response.data));
-    }).finally(() => {
-      inProgress.value = false;
-    });
-};
-const submit = handleSubmit((values) => {
-  const data = values;
-  data.id = null;
-  pushData(data);
-});
+const dataTableHeaders = (axis) => {
+  return [
+    { title: 'Source ID', key: axis + '_id' },
+    {
+      title: 'Source',
+      key: axis + '_uri'
+    },
+    {
+      title: 'Target',
+      key: 'sim_' + axis + '_uri'
+    },
+    {
+      title: 'score',
+      key: 'score'
+    },
+    { title: 'Target ID', key: 'sim_' + axis + '_id' },
+    {
+      title: 'Actions',
+      key: 'actions',
+      align: 'end',
+      sortable: false
+    }]
+
+}
+
+// const pushData = (data) => {
+//   inProgress.value = true;
+//   AxisService.create(data)
+//     .then((response) => {
+//       console.log(response);
+//       if (response.status === 200) {
+//       } else {
+//         alert(JSON.stringify(response.data));
+//       }
+//     })
+//     .catch((err) => {
+//       console.log(JSON.stringify(err.response.data));
+//     }).finally(() => {
+//       inProgress.value = false;
+//     });
+// };
+// const submit = handleSubmit((values) => {
+//   const data = values;
+//   data.id = null;
+//   pushData(data);
+// });
 
 /**
  * 
@@ -281,46 +364,67 @@ const submit = handleSubmit((values) => {
  */
 
 const computeSimilarities = (axis, kg) => {
+  inProgress.value = true;
   AxisService.computeSimilarities(axis, kg).then((response) => {
     if (response.status === 200) {
-      console.log("The computation has started successfully for " + axis + " axis on the knowledge graph " + kg);
+      snackbar.value = {
+        active: true,
+        text: "The computation has started successfully for " + axis + " axis on the knowledge graph " + kg,
+        timeout: 4000
+      };
+      currentRunning();
     } else {
-      console.log("Error we can't start the computation for " + axis + " axis on the knowledge graph " + kg);
+      snackbar.value = {
+        active: true,
+        text: "Error we can't start the computation for " + axis + " axis on the knowledge graph " + kg,
+        timeout: 4000
+      };
     }
   }).catch((error) => {
-    console.error("Error we can't start the computation for " + axis + " axis on the knowledge graph " + kg);
-    console.error("Error starting computation:", error);
+    snackbar.value = {
+      active: true,
+      text: "Error we can't start the computation for " + axis + " axis on the knowledge graph " + kg,
+      timeout: 4000
+    };
+  }).finally(() => {
+    inProgress.value = false;
   });
 };
 
 const runWorkLoad = () => {
-  // Implement the logic to run the workload
-  console.log("Running workload...");
-  console.log(kgSelectedValues.value);
-  console.log(selectedAxis.value);
-  // currentRunning();
   if (kgSelectedValues.value.length > 0 && selectedAxis.value.length > 0) {
-    // continue
     for (var i = 0; i < kgSelectedValues.value.length; i++) {
       const checkStatus = currentProcesses.value.find(process => process.kg === kgSelectedValues.value[i]);
       for (var j = 0; j < selectedAxis.value.length; j++) {
-        if (checkStatus && checkStatus.status !== 'in_progress' && checkStatus.axis !== selectedAxis.value[j] && selectedAxis.value[j] !== '') {
+        if (checkStatus && checkStatus.status !== 'IN_PROGRESS' && checkStatus.axis !== selectedAxis.value[j] && selectedAxis.value[j] !== '') {
           computeSimilarities(selectedAxis.value[j], kgSelectedValues.value[i]);
         } else {
           if (!checkStatus && selectedAxis.value[j] !== '') {
             computeSimilarities(selectedAxis.value[j], kgSelectedValues.value[i]);
           } else {
-            console.log("The knowledge graph " + kgSelectedValues.value[i] + " is already running");
+            snackbar.value = {
+              active: true,
+              text: "The knowledge graph " + kgSelectedValues.value[i] + " is already running",
+              timeout: 4000
+            };
           }
         }
       }
     }
   } else {
     if (kgSelectedValues.length === 0) {
-      alert('You should select at least one knowledge graph');
+      snackbar.value = {
+        active: true,
+        text: 'You should select at least one knowledge graph',
+        timeout: 4000
+      };
     }
     if (selectedAxis.length === 0) {
-      alert('You should select at least one axis');
+      snackbar.value = {
+        active: true,
+        text: 'You should select at least one axis',
+        timeout: 4000
+      };
     }
   }
   currentRunning();
@@ -351,11 +455,19 @@ const checkParams = () => {
         return false;
       }
     } else {
-      alert('All fields are required');
+      snackbar.value = {
+        active: true,
+        text: 'All fields are required',
+        timeout: 4000
+      };
     }
     return false;
   } else {
-    alert('It is imperative to select only one knowledge graph and an axis');
+    snackbar.value = {
+      active: true,
+      text: 'It is imperative to select only one knowledge graph and an axis',
+      timeout: 4000
+    };
     return false;
   }
 };
@@ -370,32 +482,96 @@ const searchSim = () => {
       page: page.value.value,
       kgName: selectedKgP.value
     }
-    console.log(selectedAxisP.value + ' ' + selectedKgP.value);
+    inProgress.value = true;
     AxisService.listSimilarities(selectedAxisP.value, data).then((response) => {
       if (response.status === 200) {
-        console.log(response.data);
         dataTableItems.value = response.data[selectedAxisP.value + 's'];
         totalCount.value = response.data.total_count;
         totalPageCount.value = response.data.page_count;
         console.log(selectedAxisP.value + 's', response.data[selectedAxisP.value + 's']);
       }
     }).catch((error) => {
-      console.error("Error listing similarities:", error);
+      snackbar.value = {
+        active: true,
+        text: "Error listing similarities: " + error.response.data,
+        timeout: 4000
+      };
+    }).finally(() => {
+      inProgress.value = false;
     });
   } else {
-    console.log('All the parameters are required');
+    snackbar.value = {
+      active: true,
+      text: 'All the parameters are required',
+      timeout: 4000
+    };
   }
 }
 const produceUpdateQuery = (item) => {
   // Implement the logic to produce the update query for the selected item
 };
 
-const confirmDelete = (id) => {
-
+const confirmDelete = (item) => {
+  const index = dataTableItems.value.findIndex(i => i['sim_' + selectedAxisP.value + '_id'] === item['sim_' + selectedAxisP.value + '_id']);
+  if (index !== -1) {
+    dataTableItems.value.splice(index, 1);
+  }
+  AxisService.delete(selectedAxisP.value, item['sim_' + selectedAxisP.value + '_id']).then((response) => {
+    if (response.status === 200 && response.data.result) {
+      snackbar.value = {
+        active: true,
+        text: "The similarity has been deleted successfully ! ",
+        timeout: 4000
+      };
+    }
+  }).catch((error) => {
+    snackbar.value = {
+      active: true,
+      text: "Error deleting similarity: " + JSON.stringify(error.response.data),
+      timeout: 4000
+    };
+  }).finally(() => {
+    inProgress.value = false;
+  });
 };
 
 const deleteResults = () => {
   // Implement the logic to delete the results
+  dataTableItems.value = [];
+  let data = {}
+  if (checkParams()) {
+    data = {
+      minScore: minSim.value.value,
+      maxScore: maxSim.value.value,
+      limit: limit.value.value,
+      page: page.value.value,
+      kgName: selectedKgP.value
+    }
+    inProgress.value = true;
+    AxisService.deleteBunch(selectedAxisP.value, data).then((response) => {
+      if (response.status === 200) {
+        snackbar.value = {
+          active: true,
+          text: "The similarities have been deleted successfully ! ",
+          timeout: 4000
+        };
+      }
+    }).catch((error) => {
+      snackbar.value = {
+        active: true,
+        text: "Error deleting similarities: " + error.response.data,
+        timeout: 4000
+      };
+    }).finally(() => {
+      inProgress.value = false;
+    });
+  } else {
+    snackbar.value = {
+      active: true,
+      text: 'All the parameters are required',
+      timeout: 4000
+    };
+  }
 };
 
 const countResults = () => {
@@ -409,16 +585,27 @@ const countResults = () => {
       kgName: selectedKgP.value
     }
     console.log(selectedAxisP.value + ' ' + selectedKgP.value);
+    inProgress.value = true;
     AxisService.countResults(selectedAxisP.value, data).then((response) => {
       if (response.status === 200) {
         totalCount.value = response.data.total_count;
         totalPageCount.value = response.data.page_count;
       }
     }).catch((error) => {
-      console.error("Error listing similarities:", error);
+      snackbar.value = {
+        active: true,
+        text: "Error listing similarities: " + JSON.stringify(error.response.data),
+        timeout: 4000
+      };
+    }).finally(() => {
+      inProgress.value = false;
     });
   } else {
-    console.log('All the parameters are required');
+    snackbar.value = {
+      active: true,
+      text: 'All the parameters are required',
+      timeout: 4000
+    };
   }
 };
 
@@ -436,16 +623,27 @@ const generateUpdates = () => {
       kgName: selectedKgP.value
     }
     console.log(selectedAxisP.value + ' ' + selectedKgP.value);
+    inProgress.value = true;
     AxisService.generateCorrespondences(selectedAxisP.value, data).then((response) => {
       if (response.status === 200) {
         correspondenceFileName.value = response.data.correspondence_file_name;
         queriesFileName.value = response.data.query_file_name;
       }
     }).catch((error) => {
-      console.error("Error listing similarities:", error);
+      snackbar.value = {
+        active: true,
+        text: JSON.stringify(error.response.data) || 'Error generating correspondences',
+        timeout: 4000
+      };
+    }).finally(() => {
+      inProgress.value = false;
     });
   } else {
-    console.log('All the parameters are required');
+    snackbar.value = {
+      active: true,
+      text: 'All the parameters are required',
+      timeout: 4000
+    };
   }
 };
 
@@ -484,7 +682,7 @@ const exportCorrespondences = () => {
         </v-row>
       </v-app-bar>
 
-      <v-main style="margin-top: 24px; height: calc(100vh - 105px)">
+      <v-main style="margin-top: 24px; height: calc(100vh - 65px)">
         <v-container fluid>
           <v-row class="text-center">
             <v-col cols="12" md="12" class="d-flex justify-center" v-if="inProgress">
@@ -502,14 +700,15 @@ const exportCorrespondences = () => {
                     <v-row class="pa-4" style="max-height: calc(100vh - 200px); width:100%; overflow-y: auto;">
                       <v-col cols="12" v-for="(value, index) in showProcesses" :key="index"
                         style="overflow-x:auto;background-color: black; margin-bottom: 10px; border-radius: 10px; padding: 10px;">
-                        <v-progress-circular v-if="value.status === 'in_progress'" size="16" color="amber"
+                        <v-progress-circular v-if="value.status === 'IN_PROGRESS'" size="16" color="amber"
                           indeterminate></v-progress-circular><v-icon icon="mdi-check-all"
                           v-if="value.status === 'COMPLETED'" size="16" color="success"></v-icon> <strong>{{ index
                           }}</strong> <br />{{
-                            value.axis.join(',') }} / {{ value.status }} / {{ value.progress }}%
+                            value.axis.join('-') }} <br /> {{ value.status.join('-') }} <br /> {{ value.progress.join('-')
+                        }}%
                         <br />
-                        <v-progress-linear color="light-blue" height="10" :model-value="value.progress"
-                          striped></v-progress-linear>
+                        <v-progress-linear color="light-blue" height="10" v-for="(progress, index) in value.progress"
+                          :key="index" :model-value="progress" striped></v-progress-linear>
                       </v-col>
                     </v-row>
                   </v-card>
@@ -546,32 +745,64 @@ const exportCorrespondences = () => {
                   </v-card-title>
 
                   <v-divider></v-divider>
-                  <v-data-table v-model:search="search"
-                    :filter-keys="[selectedAxisP.value + 'uri', 'sim_' + selectedAxisP.value + '_uri', 'score']"
-                    :items="dataTableItems" :headers="dataTableHeaders" fixed-header height="calc(100vh - 400px)">
+
+                  <v-data-table v-model:search="search" :filter-keys="['predicate_uri', 'sim_predicate_uri', 'score']"
+                    :items="dataTableItems" :headers="dataTableHeaders('predicate')" fixed-header
+                    height="calc(100vh - 350px)" v-if="selectedAxisP === 'predicate'">
 
                     <template v-slot:item.actions="{ item }">
                       <div class="d-flex ga-2 justify-end">
-                        <v-icon color="blue-darken-2" icon="mdi-list-box" size="large" @click="produceUpdateQuery(item)"
-                          v-tooltip="'Show similar'"></v-icon>
-                        <v-icon color="red-lighten-2" icon="mdi-delete" size="large" @click="confirmDelete(item.id)"
+                        <!-- <v-icon color="blue-darken-2" icon="mdi-list-box" size="large" @click="produceUpdateQuery(item)"
+                          v-tooltip="'Show similar'"></v-icon> -->
+                        <v-icon color="red-lighten-2" icon="mdi-delete" size="large" @click="confirmDelete(item)"
                           v-tooltip="'Delete'"></v-icon>
                       </div>
 
                     </template>
                   </v-data-table>
+
+                  <v-data-table v-model:search="search" :filter-keys="['subject_uri', 'sim_subject_uri', 'score']"
+                    :items="dataTableItems" :headers="dataTableHeaders('subject')" fixed-header
+                    height="calc(100vh - 350px)" v-if="selectedAxisP === 'subject'">
+
+                    <template v-slot:item.actions="{ item }">
+                      <div class="d-flex ga-2 justify-end">
+                        <!-- <v-icon color="blue-darken-2" icon="mdi-list-box" size="large" @click="produceUpdateQuery(item)"
+                          v-tooltip="'Show similar'"></v-icon> -->
+                        <v-icon color="red-lighten-2" icon="mdi-delete" size="large" @click="confirmDelete(item)"
+                          v-tooltip="'Delete'"></v-icon>
+                      </div>
+
+                    </template>
+                  </v-data-table>
+
+                  <v-data-table v-model:search="search" :filter-keys="['object_uri', 'sim_object_uri', 'score']"
+                    :items="dataTableItems" :headers="dataTableHeaders('object')" fixed-header
+                    height="calc(100vh - 350px)" v-if="selectedAxisP === 'object'">
+
+                    <template v-slot:item.actions="{ item }">
+                      <div class="d-flex ga-2 justify-end">
+                        <!-- <v-icon color="blue-darken-2" icon="mdi-list-box" size="large" @click="produceUpdateQuery(item)"
+                          v-tooltip="'Show similar'"></v-icon> -->
+                        <v-icon color="red-lighten-2" icon="mdi-delete" size="large" @click="confirmDelete(item)"
+                          v-tooltip="'Delete'"></v-icon>
+                      </div>
+
+                    </template>
+                  </v-data-table>
+
                 </v-card>
               </v-row>
             </v-col>
 
             <v-col cols="12" md="2">
-              <v-card class="pa-4" style="height: calc(100vh - 150px);overflow-y: auto;">
-                <v-card-title style="font-size: 2em;">Parameters</v-card-title>
+              <v-card class="pa-4" style="height: calc(100vh - 120px);overflow-y: auto;">
+                <v-card-title style="font-size: 2em;">Deep Search</v-card-title>
                 <form @submit.prevent="">
                   <v-row>
                     <v-col cols="12">
-                      <v-select v-model="selectedKgP" :items="kgs" label="Knowledge Graphs"
-                        hint="Select one knowledge graph." persistent-hint />
+                      <v-select v-model="selectedKgP" :items="onlyProcessedKnowledgeGraphs(kgs)"
+                        label="Knowledge Graphs" hint="Select one knowledge graph." persistent-hint />
                     </v-col>
                     <v-col cols="12">
                       <v-select v-model="selectedAxisP" :items="['subject', 'predicate', 'object']" label="Axis"
@@ -637,4 +868,16 @@ const exportCorrespondences = () => {
       </v-main>
     </v-layout>
   </v-card>
+
+
+  <!-- Snackbar -->
+  <v-snackbar v-model="snackbar.active" :timeout="snackbar.timeout">
+    {{ snackbar.text }}
+
+    <template v-slot:actions>
+      <v-btn color="blue" variant="text" @click="snackbar.active = false">
+        Close
+      </v-btn>
+    </template>
+  </v-snackbar>
 </template>
